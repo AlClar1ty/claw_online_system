@@ -244,6 +244,34 @@ th, td {
 
 .badge.on { background: #d9f3e4; color: var(--ok); }
 .badge.off { background: #efe4d8; color: var(--muted); }
+.badge.wait { background: #f8e7c2; color: var(--wait); }
+.badge.bad { background: #f8d7d4; color: var(--bad); }
+
+.table-wrap { overflow-x: auto; }
+
+.detail {
+  margin-top: 18px;
+  padding: 18px;
+  background: var(--card);
+  border: 2px solid var(--line);
+  border-radius: 16px;
+}
+
+.detail h2 { margin: 0 0 14px; font-size: 1.25rem; }
+
+.detail dl {
+  display: grid;
+  grid-template-columns: minmax(140px, 200px) 1fr;
+  gap: 8px 16px;
+  margin: 0;
+}
+
+.detail dt { color: var(--muted); }
+.detail dd { margin: 0; overflow-wrap: anywhere; }
+
+@media (max-width: 700px) {
+  .detail dl { grid-template-columns: 1fr; }
+}
 
 .login-screen {
   min-height: 100vh;

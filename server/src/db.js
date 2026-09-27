@@ -182,6 +182,16 @@ export function findPaymentByOrderId(db, orderId) {
   return db.prepare('SELECT * FROM payments WHERE order_id = ?').get(orderId);
 }
 
+export function listPayments(db) {
+  return db.prepare(`
+    SELECT id, order_id, token_id, price, play_count, midtrans_transaction_id,
+           midtrans_status, fraud_status, signal_status, expires_at,
+           signal_queued_at, signal_accepted_at, signal_done_at, created_at, updated_at
+    FROM payments
+    ORDER BY id DESC
+  `).all();
+}
+
 export function amountsEqual(grossAmount, price) {
   if (typeof grossAmount !== 'string' || !Number.isInteger(price)) return false;
   const text = grossAmount.trim();

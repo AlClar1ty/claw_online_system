@@ -155,7 +155,7 @@ function renderPayment(payment, extra = '') {
     const box = document.createElement('div');
     box.className = 'sandbox';
     const hint = document.createElement('p');
-    hint.textContent = 'Mode sandbox. Tempel URL gambar QR ini ke simulator QRIS Midtrans, lalu selesaikan pembayaran di simulator.';
+    hint.textContent = 'Mode sandbox. Tempel URL gambar QR ini ke simulator QRIS Midtrans, lalu bayar lewat ShopeePay di simulator. QR yang dibuat dengan acquirer GoPay sering ditolak simulator (error 116).';
     const link = document.createElement('code');
     link.textContent = payment.qr_link.startsWith('https://') ? payment.qr_link : '';
     box.append(hint, link);

@@ -310,4 +310,16 @@ test('admin, token, pembayaran, dan sinyal hanya sekali', async () => {
     device: deviceToken,
   });
   assert.equal(kept.status, 200);
+
+  const hiddenHistory = await request('/api/admin/payments');
+  assert.equal(hiddenHistory.status, 401);
+  const history = await request('/api/admin/payments', { cookie });
+  assert.equal(history.status, 200);
+  const recorded = history.data.payments.find((item) => item.order_id === payment.data.order_id);
+  assert.equal(recorded.price, 9000);
+  assert.equal(recorded.play_count, 2);
+  assert.equal(recorded.midtrans_status, 'settlement');
+  assert.equal(recorded.signal_status, 'done');
+  assert.equal(Object.hasOwn(recorded, 'qr_string'), false);
+  assert.equal(Object.hasOwn(recorded, 'qr_image'), false);
 });

@@ -17,6 +17,7 @@ import {
   insertPayment,
   insertToken,
   listAdmins,
+  listPayments,
   listTokens,
   recordGatewayUpdate,
   updateAdmin,
@@ -307,6 +308,28 @@ export function createApp({ db, config, midtrans }) {
       throw error;
     }
   }));
+
+  app.get('/api/admin/payments', requireAdmin, (req, res) => {
+    res.json({
+      payments: listPayments(db).map((row) => ({
+        id: row.id,
+        order_id: row.order_id,
+        token_id: row.token_id,
+        price: row.price,
+        play_count: row.play_count,
+        midtrans_transaction_id: row.midtrans_transaction_id,
+        midtrans_status: row.midtrans_status,
+        fraud_status: row.fraud_status,
+        signal_status: row.signal_status,
+        expires_at: row.expires_at,
+        signal_queued_at: row.signal_queued_at,
+        signal_accepted_at: row.signal_accepted_at,
+        signal_done_at: row.signal_done_at,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+      })),
+    });
+  });
 
   app.get('/api/admin/tokens', requireAdmin, (req, res) => {
     res.json({

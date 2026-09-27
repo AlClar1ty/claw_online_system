@@ -82,11 +82,11 @@ node --input-type=module -e "import crypto from 'node:crypto'; console.log(crypt
 
 Jalankan perintah itu dua kali, sekali untuk `JWT_SECRET` dan sekali untuk `DEVICE_TOKEN`.
 
-Admin pertama bisa masuk setelah server dijalankan. Dari situ admin menambah akun lain, mengubahnya, atau menonaktifkannya, lalu mengatur harga dan jumlah main tiap token. Token yang dinonaktifkan tidak muncul di halaman pembeli. Harga pembayaran diambil dari data token di server, bukan dari halaman web.
+Admin pertama bisa masuk setelah server dijalankan. Dari situ admin menambah akun lain, mengubahnya, atau menonaktifkannya, lalu mengatur harga dan jumlah main tiap token. Menu riwayat menampilkan setiap pembelian beserta status pembayaran dan status sinyal. Token yang dinonaktifkan tidak muncul di halaman pembeli. Harga pembayaran diambil dari data token di server, bukan dari halaman web.
 
 ## Uji sandbox Midtrans
 
-1. Isi `MIDTRANS_SERVER_KEY` dengan Server Key **sandbox**, dan biarkan `MIDTRANS_IS_PRODUCTION=false`.
+1. Isi `MIDTRANS_SERVER_KEY` dengan Server Key **sandbox**, biarkan `MIDTRANS_IS_PRODUCTION=false`, dan untuk simulator pakai `MIDTRANS_QRIS_ACQUIRER=airpay shopee`. Acquirer `gopay` menaruh identitas toko pada akun Midtrans ke dalam QR, sehingga simulator sering menjawab error 116 merchant not found.
 2. Jalankan server, masuk sebagai admin, lalu buat token (harga dan jumlah main).
 3. Buka halaman pembeli, pilih token. QRIS dan status muncul.
 4. Di kotak sandbox pada halaman itu ada URL gambar QR. Buka [simulator QRIS Midtrans](https://simulator.sandbox.midtrans.com/qris/index), tempel URL itu, lalu selesaikan pembayaran. Akun yang masih memakai alur SNAP dapat memakai [simulator QRIS OpenAPI](https://simulator.sandbox.midtrans.com/openapi/qris/index).

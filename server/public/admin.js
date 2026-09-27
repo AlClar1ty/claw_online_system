@@ -127,6 +127,10 @@ async function renderShell() {
       view = 'tokens';
       renderShell();
     }),
+    shellButton('Riwayat', view === 'history', () => {
+      view = 'history';
+      renderShell();
+    }),
     shellButton('Akses admin', view === 'admins', () => {
       view = 'admins';
       renderShell();
@@ -138,6 +142,7 @@ async function renderShell() {
   shell.append(side, content);
   app.append(shell);
   if (view === 'admins') await renderAdmins(content);
+  else if (view === 'history') await renderHistory(content);
   else await renderTokens(content);
 }
 
@@ -145,6 +150,150 @@ function messageLine() {
   const note = document.createElement('p');
   note.className = 'note';
   return note;
+}
+
+function formatTime(value) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString('id-ID', {
+    timeZone: 'Asia/Jakarta',
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  });
+}
+
+function paymentLabel(status) {
+  const labels = {
+    pending: 'Menunggu',
+    settlement: 'Berhasil',
+    expire: 'Kedaluwarsa',
+    deny: 'Ditolak',
+    cancel: 'Dibatalkan',
+    failure: 'Gagal',
+  };
+  return labels[status] || status || '—';
+}
+
+function signalLabel(status) {
+  const labels = {
+    none: 'Belum dikirim',
+    queued: 'Diantrekan',
+    accepted: 'Diambil mesin',
+    done: 'Selesai',
+  };
+  return labels[status] || status || '—';
+}
+
+function statusBadge(text, kind) {
+  const badge = document.createElement('span');
+  badge.className = `badge ${kind}`;
+  badge.textContent = text;
+  return badge;
+}
+
+function paymentBadge(status) {
+  if (status === 'settlement') return statusBadge(paymentLabel(status), 'on');
+  if (status === 'pending') return statusBadge(paymentLabel(status), 'wait');
+  return statusBadge(paymentLabel(status), 'bad');
+}
+
+function signalBadge(status) {
+  if (status === 'done') return statusBadge(signalLabel(status), 'on');
+  if (status === 'queued' || status === 'accepted') return statusBadge(signalLabel(status), 'wait');
+  return statusBadge(signalLabel(status), 'off');
+}
+
+function detailRow(list, label, value) {
+  const term = document.createElement('dt');
+  term.textContent = label;
+  const description = document.createElement('dd');
+  description.textContent = value || '—';
+  list.append(term, description);
+}
+
+async function renderHistory(content) {
+  content.replaceChildren();
+  const title = document.createElement('h1');
+  title.textContent = 'Riwayat pembelian';
+  const note = messageLine();
+  const data = await api('/api/admin/payments').catch((error) => {
+    note.textContent = error.message;
+    return { payments: [] };
+  });
+  const payments = data.payments || [];
+  if (payments.length === 0 && !note.textContent) {
+    const empty = document.createElement('p');
+    empty.className = 'lead';
+    empty.textContent = 'Belum ada pembelian.';
+    content.append(title, note, empty);
+    return;
+  }
+
+  const detail = document.createElement('section');
+  detail.className = 'detail';
+  detail.hidden = true;
+
+  function showDetail(payment) {
+    detail.hidden = false;
+    detail.replaceChildren();
+    const heading = document.createElement('h2');
+    heading.textContent = `Pembayaran #${payment.id}`;
+    const list = document.createElement('dl');
+    detailRow(list, 'Order ID', payment.order_id);
+    detailRow(list, 'Token', payment.token_id ? `#${payment.token_id}` : '—');
+    detailRow(list, 'Jumlah main', `${payment.play_count} main`);
+    detailRow(list, 'Harga', rupiah(payment.price));
+    detailRow(list, 'Status pembayaran', paymentLabel(payment.midtrans_status));
+    detailRow(list, 'Status fraud', payment.fraud_status || '—');
+    detailRow(list, 'ID transaksi Midtrans', payment.midtrans_transaction_id || '—');
+    detailRow(list, 'Status sinyal', signalLabel(payment.signal_status));
+    detailRow(list, 'Dibuat', formatTime(payment.created_at));
+    detailRow(list, 'Kedaluwarsa', formatTime(payment.expires_at));
+    detailRow(list, 'Sinyal diantrekan', formatTime(payment.signal_queued_at));
+    detailRow(list, 'Sinyal diambil mesin', formatTime(payment.signal_accepted_at));
+    detailRow(list, 'Sinyal selesai', formatTime(payment.signal_done_at));
+    detailRow(list, 'Diperbarui', formatTime(payment.updated_at));
+    detail.append(heading, list);
+  }
+
+  const wrap = document.createElement('div');
+  wrap.className = 'table-wrap';
+  const table = document.createElement('table');
+  const head = document.createElement('tr');
+  for (const label of ['Waktu', 'Main', 'Harga', 'Pembayaran', 'Sinyal', '']) {
+    const cell = document.createElement('th');
+    cell.textContent = label;
+    head.append(cell);
+  }
+  const thead = document.createElement('thead');
+  thead.append(head);
+  const body = document.createElement('tbody');
+  for (const payment of payments) {
+    const row = document.createElement('tr');
+    const when = document.createElement('td');
+    when.textContent = formatTime(payment.created_at);
+    const plays = document.createElement('td');
+    plays.textContent = `${payment.play_count} main`;
+    const price = document.createElement('td');
+    price.textContent = rupiah(payment.price);
+    const pay = document.createElement('td');
+    pay.append(paymentBadge(payment.midtrans_status));
+    const signal = document.createElement('td');
+    signal.append(signalBadge(payment.signal_status));
+    const actions = document.createElement('td');
+    const open = document.createElement('button');
+    open.type = 'button';
+    open.className = 'secondary';
+    open.textContent = 'Detail';
+    open.addEventListener('click', () => showDetail(payment));
+    actions.append(open);
+    row.append(when, plays, price, pay, signal, actions);
+    body.append(row);
+  }
+  table.append(thead, body);
+  wrap.append(table);
+  content.append(title, note, wrap, detail);
 }
 
 async function renderTokens(content) {
