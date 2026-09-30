@@ -64,6 +64,10 @@ function migrate(db) {
     CREATE INDEX IF NOT EXISTS idx_payments_signal
       ON payments (signal_status, signal_queued_at, id);
   `);
+  const columns = db.prepare('PRAGMA table_info(payments)').all();
+  if (!columns.some((column) => column.name === 'skipped')) {
+    db.exec('ALTER TABLE payments ADD COLUMN skipped INTEGER NOT NULL DEFAULT 0');
+  }
 }
 
 export function countAdmins(db) {
@@ -185,11 +189,28 @@ export function findPaymentByOrderId(db, orderId) {
 export function listPayments(db) {
   return db.prepare(`
     SELECT id, order_id, token_id, price, play_count, midtrans_transaction_id,
-           midtrans_status, fraud_status, signal_status, expires_at,
+           midtrans_status, fraud_status, signal_status, expires_at, qr_image,
            signal_queued_at, signal_accepted_at, signal_done_at, created_at, updated_at
     FROM payments
+    WHERE NOT (skipped = 1 AND midtrans_status = 'pending' AND signal_status = 'none')
     ORDER BY id DESC
   `).all();
+}
+
+export function skipPendingPayment(db, id) {
+  const row = findPaymentById(db, id);
+  if (!row) return { error: 'not_found' };
+  if (row.midtrans_status !== 'pending' || row.signal_status !== 'none') {
+    return { error: 'not_skippable' };
+  }
+  const now = isoNow();
+  const result = db.prepare(`
+    UPDATE payments
+    SET skipped = 1, updated_at = ?
+    WHERE id = ? AND midtrans_status = 'pending' AND signal_status = 'none'
+  `).run(now, id);
+  if (result.changes !== 1) return { error: 'not_skippable' };
+  return { ok: true };
 }
 
 export function amountsEqual(grossAmount, price) {
@@ -245,6 +266,19 @@ export function recordGatewayUpdate(db, body) {
     WHERE id = ? AND signal_status = 'none' AND midtrans_status != 'settlement'
   `).run(status, body.fraud_status || null, transactionId, now, order.id);
   return { found: true, queued: false, updated: result.changes === 1 };
+}
+
+export function releaseForeignJobs(db, ownerHash) {
+  const now = isoNow();
+  const result = db.prepare(`
+    UPDATE payments
+    SET signal_status = 'queued',
+        accepted_by = NULL,
+        signal_accepted_at = NULL,
+        updated_at = ?
+    WHERE signal_status = 'accepted' AND IFNULL(accepted_by, '') != ?
+  `).run(now, ownerHash);
+  return result.changes;
 }
 
 export function claimNextJob(db, deviceHash) {

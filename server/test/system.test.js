@@ -311,6 +311,23 @@ test('admin, token, pembayaran, dan sinyal hanya sekali', async () => {
   });
   assert.equal(kept.status, 200);
 
+  const unpaid = await request('/api/payments', {
+    method: 'POST',
+    body: { token_id: token.data.token.id },
+  });
+  assert.equal(unpaid.status, 201);
+  const withQr = await request('/api/admin/payments', { cookie });
+  const waiting = withQr.data.payments.find((item) => item.order_id === unpaid.data.order_id);
+  assert.equal(waiting.midtrans_status, 'pending');
+  assert.equal(waiting.signal_status, 'none');
+  assert.equal(waiting.qr_data_url.startsWith('data:image/png;base64,'), true);
+  const skipped = await request(`/api/admin/payments/${waiting.id}/skip`, { method: 'POST', cookie });
+  assert.equal(skipped.status, 200);
+  const afterSkip = await request('/api/admin/payments', { cookie });
+  assert.equal(afterSkip.data.payments.some((item) => item.id === waiting.id), false);
+  const skipDone = await request('/api/admin/payments/1/skip', { method: 'POST', cookie });
+  assert.equal(skipDone.status, 409);
+
   const hiddenHistory = await request('/api/admin/payments');
   assert.equal(hiddenHistory.status, 401);
   const history = await request('/api/admin/payments', { cookie });

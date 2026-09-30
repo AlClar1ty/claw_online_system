@@ -45,6 +45,11 @@ export function configFromEnv(env = process.env) {
     adminUsername: String(env.ADMIN_USERNAME || '').trim(),
     adminPassword: env.ADMIN_PASSWORD || '',
     dbPath,
+    localRelay: env.LOCAL_RELAY === 'true',
+    relayGpio: Number(env.RELAY_GPIO ?? 17),
+    relayActiveHigh: env.RELAY_ACTIVE_HIGH !== 'false',
+    relayOnMs: Number(env.RELAY_ON_MS ?? 80),
+    relayGapMs: Number(env.RELAY_GAP_MS ?? 200),
   };
 }
 
@@ -75,5 +80,15 @@ export function assertRuntimeConfig(config, { needsSeed }) {
   }
   if (!Number.isInteger(config.port) || config.port < 1 || config.port > 65535) {
     throw new Error('PORT tidak valid');
+  }
+  if (!config.localRelay) return;
+  if (!Number.isInteger(config.relayGpio) || config.relayGpio < 2 || config.relayGpio > 27) {
+    throw new Error('RELAY_GPIO harus nomor BCM 2 sampai 27');
+  }
+  if (!Number.isInteger(config.relayOnMs) || config.relayOnMs < 20 || config.relayOnMs > 500) {
+    throw new Error('RELAY_ON_MS harus bilangan bulat 20 sampai 500');
+  }
+  if (!Number.isInteger(config.relayGapMs) || config.relayGapMs < 0 || config.relayGapMs > 2000) {
+    throw new Error('RELAY_GAP_MS harus bilangan bulat 0 sampai 2000');
   }
 }

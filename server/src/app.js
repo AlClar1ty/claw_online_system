@@ -19,6 +19,7 @@ import {
   listAdmins,
   listPayments,
   listTokens,
+  skipPendingPayment,
   recordGatewayUpdate,
   updateAdmin,
   updateToken,
@@ -311,24 +312,47 @@ export function createApp({ db, config, midtrans }) {
 
   app.get('/api/admin/payments', requireAdmin, (req, res) => {
     res.json({
-      payments: listPayments(db).map((row) => ({
-        id: row.id,
-        order_id: row.order_id,
-        token_id: row.token_id,
-        price: row.price,
-        play_count: row.play_count,
-        midtrans_transaction_id: row.midtrans_transaction_id,
-        midtrans_status: row.midtrans_status,
-        fraud_status: row.fraud_status,
-        signal_status: row.signal_status,
-        expires_at: row.expires_at,
-        signal_queued_at: row.signal_queued_at,
-        signal_accepted_at: row.signal_accepted_at,
-        signal_done_at: row.signal_done_at,
-        created_at: row.created_at,
-        updated_at: row.updated_at,
-      })),
+      payments: listPayments(db).map((row) => {
+        const waiting = row.midtrans_status === 'pending' && row.signal_status === 'none';
+        const payment = {
+          id: row.id,
+          order_id: row.order_id,
+          token_id: row.token_id,
+          price: row.price,
+          play_count: row.play_count,
+          midtrans_transaction_id: row.midtrans_transaction_id,
+          midtrans_status: row.midtrans_status,
+          fraud_status: row.fraud_status,
+          signal_status: row.signal_status,
+          expires_at: row.expires_at,
+          signal_queued_at: row.signal_queued_at,
+          signal_accepted_at: row.signal_accepted_at,
+          signal_done_at: row.signal_done_at,
+          created_at: row.created_at,
+          updated_at: row.updated_at,
+        };
+        if (waiting && row.qr_image) payment.qr_data_url = row.qr_image;
+        return payment;
+      }),
     });
+  });
+
+  app.post('/api/admin/payments/:id/skip', requireAdmin, (req, res) => {
+    const id = routeId(req.params.id);
+    if (!id) {
+      res.status(400).json({ error: 'Pembayaran tidak valid' });
+      return;
+    }
+    const result = skipPendingPayment(db, id);
+    if (result.error === 'not_found') {
+      res.status(404).json({ error: 'Pembayaran tidak ditemukan' });
+      return;
+    }
+    if (result.error === 'not_skippable') {
+      res.status(409).json({ error: 'Hanya pembayaran yang masih menunggu dan belum mengirim sinyal yang bisa dilewati' });
+      return;
+    }
+    res.json({ ok: true });
   });
 
   app.get('/api/admin/tokens', requireAdmin, (req, res) => {
@@ -531,12 +555,20 @@ export function createApp({ db, config, midtrans }) {
     res.json({ received: true });
   });
 
-  app.get('/api/machine/jobs', requireDevice, (req, res) => {
+  function rejectExternalDevice(req, res, next) {
+    if (!config.localRelay) {
+      next();
+      return;
+    }
+    res.status(409).json({ error: 'Sinyal dikirim oleh GPIO Raspberry Pi' });
+  }
+
+  app.get('/api/machine/jobs', rejectExternalDevice, requireDevice, (req, res) => {
     const job = claimNextJob(db, deviceHash(req.headers['x-device-token']));
     res.json({ job });
   });
 
-  app.post('/api/machine/jobs/:id/complete', requireDevice, (req, res) => {
+  app.post('/api/machine/jobs/:id/complete', rejectExternalDevice, requireDevice, (req, res) => {
     const id = routeId(req.params.id);
     if (!id) {
       res.status(400).json({ error: 'Pembayaran tidak valid' });

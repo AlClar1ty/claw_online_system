@@ -1,7 +1,10 @@
+import path from 'node:path';
 import bcrypt from 'bcryptjs';
 import { createApp } from './app.js';
 import { assertRuntimeConfig, configFromEnv, loadEnvFile } from './config.js';
 import { countAdmins, insertAdmin, openDatabase } from './db.js';
+import { createPiRelay } from './gpio-relay.js';
+import { startLocalRelay } from './local-relay.js';
 import { createMidtransClient } from './midtrans.js';
 
 loadEnvFile();
@@ -24,6 +27,22 @@ const midtrans = createMidtransClient({
   acquirer: config.qrisAcquirer,
 });
 const app = createApp({ db, config, midtrans });
+let localRelay = null;
+if (config.localRelay) {
+  localRelay = startLocalRelay({
+    db,
+    relay: createPiRelay({
+      pin: config.relayGpio,
+      activeHigh: config.relayActiveHigh,
+    }),
+    stateFile: path.join(path.dirname(config.dbPath), 'relay-state.json'),
+    onMs: config.relayOnMs,
+    gapMs: config.relayGapMs,
+  });
+  const level = config.relayActiveHigh ? 'HIGH' : 'LOW';
+  console.log(`Relay GPIO BCM ${config.relayGpio}, kontak tertutup saat pin ${level}`);
+}
+
 const server = app.listen(config.port, () => {
   console.log(`Server berjalan di http://localhost:${config.port}`);
   console.log(`Midtrans: ${config.midtransProduction ? 'production' : 'sandbox'}`);
@@ -31,10 +50,28 @@ const server = app.listen(config.port, () => {
   console.log('Halaman admin: /admin');
 });
 
+let closing = false;
+
 function shutdown() {
-  server.close(() => {
-    db.close();
-    process.exit(0);
+  if (closing) return;
+  closing = true;
+  const done = () => {
+    server.close(() => {
+      db.close();
+      process.exit(0);
+    });
+  };
+  if (!localRelay) {
+    done();
+    return;
+  }
+  const timer = setTimeout(done, 2000);
+  localRelay.stop().then(() => {
+    clearTimeout(timer);
+    done();
+  }, () => {
+    clearTimeout(timer);
+    done();
   });
 }
 

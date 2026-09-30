@@ -258,6 +258,8 @@ th, td {
 }
 
 .detail h2 { margin: 0 0 14px; font-size: 1.25rem; }
+.detail .qr { display: block; margin-top: 16px; }
+.detail .secondary { margin-top: 16px; }
 
 .detail dl {
   display: grid;

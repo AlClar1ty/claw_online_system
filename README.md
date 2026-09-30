@@ -1,46 +1,32 @@
 # Pembayaran QRIS mesin capit
 
-Sistem ini punya tiga bagian dalam satu repo:
+Sistem ini berjalan di satu Raspberry Pi:
 
 - `server` menyimpan admin, token, pembayaran, dan antrean sinyal
 - halaman web untuk pembeli dan admin, dilayani oleh server yang sama
-- `firmware` untuk ESP32-WROOM-32 yang sudah menempel di papan relay
+- GPIO Raspberry Pi menutup kontak relay sekali untuk setiap main
 
-Pembeli memilih jumlah main, membayar QRIS, dan setelah status Midtrans `settlement` server mengantrekan sinyal ke mesin. ESP32 menutup kontak relay sekali untuk setiap main. Server Key Midtrans hanya ada di environment server.
+Pembeli memilih jumlah main, membayar QRIS, dan setelah status Midtrans `settlement` server mengantrekan sinyal. Proses yang sama lalu menggerakkan GPIO. Server Key Midtrans hanya ada di environment server. Folder `firmware` adalah pengirim sinyal ESP32 yang tidak dipakai lagi.
 
-## Papan dan GPIO
+## Memasang relay di Raspberry Pi
 
-Papan yang dipakai sudah berisi ESP32-WROOM-32 dan satu relay Songle SRD-05VDC-SL-C. Tidak perlu modul relay tambahan.
+Modul yang dipakai adalah relay Songle 2 kanal, kumparan 5 V. Gambar sambungannya ada di [docs/sambungan-relay.svg](docs/sambungan-relay.svg). Matikan Pi dan cabut daya sebelum memasang kabel. GPIO tidak boleh disambung langsung ke dua kawat sinyal koin. Jangan sambung apa pun ke listrik PLN.
 
-Pada papan ESP32 satu kanal dengan terminal sekrup L/N (keluarga **ESP32 Relay AC X1** dan klon dengan tata letak yang sama), jalur kumparan relay sudah ke **GPIO16**. Level **HIGH** menutup kontak COM–NO. Firmware memakai pin itu. LED onboard di GPIO23 dan tombol di GPIO0 tidak dipakai.
+Hanya kanal 1 yang dipakai. Dari ujung header yang dekat slot microSD:
 
-Daya papan dari **USB 5 V**. Terminal **L** dan **N** adalah masukan PLN pada papan ini. Jangan dihubungkan ke listrik PLN dan jangan dipakai untuk sinyal koin.
+| Kawat | Pin Raspberry Pi | Kaki modul |
+| --- | --- | --- |
+| Merah | Pin 2, 5 V, di tepi luar | VCC |
+| Hitam | Pin 6, GND, di tepi luar | GND |
+| Hijau | Pin 11, BCM 17, di sisi dalam | IN1 |
 
-## Sambungan COM dan NO
+IN2 tidak disambung. Jumper RY-VCC ke VCC dibiarkan terpasang. Pin 1 (3,3 V) tidak dipakai.
 
-Kontak yang dipakai hanya kontak kering relay. Dua kawat sinyal koin mesin diparalel ke **COM** dan **NO**. Urutan kedua kawat tidak masalah, karena kontak ini tidak punya polaritas dan papan tidak mengirim tegangan ke mesin. **NC** dibiarkan kosong. Saat kumparan mati, COM di dalam relay terhubung ke NC, tetapi terminal NC tidak disambung jadi tidak ada efek.
+Pada sekrup kanal 1, COM dan NO pergi ke dua kawat sinyal koin. Urutan kedua kawat bebas. NC kosong. Sekrup tengah pada terminal ini biasanya COM; cocokkan dengan cetakan di papan. Kanal 2 tidak dipakai.
 
-```
-                         USB 5 V
-                            |
-                            v
-              +----------------------------------+
-              |  ESP32-WROOM-32                  |
-              |  kumparan relay -> GPIO16        |
-              |  Relay Songle SRD-05VDC-SL-C     |
-              |                                  |
-              |  NC      COM      NO    |  L   N |
-              +----------------------------------+
-                 |       |        |         |   |
-                (kosong) |        |      (jangan disambung
-                         |        |       ke PLN)
-                         +---+----+
-                             |
-                    dua kawat sinyal koin
-                    (kontak kering, paralel)
-```
+Modul ini menutup COM–NO saat IN1 berlevel LOW, sekitar 80 ms, lalu jeda sekitar 200 ms. Saat tidak ada main, pin 11 berlevel HIGH dan kontak lepas. Nilai waktunya `RELAY_ON_MS` dan `RELAY_GAP_MS`. Di environment, `RELAY_ACTIVE_HIGH=false`.
 
-Saat satu main dikirim, GPIO16 HIGH sekitar 80 ms sehingga COM dan NO terhubung, lalu LOW, lalu jeda sekitar 200 ms sebelum main berikutnya. Kedua waktu ada di `firmware/include/config.h`.
+Sisa pulsa ditulis ke `server/data/relay-state.json` sebelum relay bergerak. Jika listrik putus di tengah antrean, setelah nyala ulang Pi meneruskan sisa itu. Satu pembayaran hanya diambil satu kali. Permintaan HTTP ke `/api/machine/jobs` ditolak supaya perangkat lain tidak mengirim sinyal yang sama.
 
 ## Menjalankan server
 
@@ -68,7 +54,12 @@ Edit `server/.env`. Arti tiap nilai ada di `server/.env.example`.
 | `MIDTRANS_IS_PRODUCTION` | `false` untuk sandbox. |
 | `MIDTRANS_QRIS_ACQUIRER` | `gopay` atau `airpay shopee`. |
 | `JWT_SECRET` | String acak, minimal 24 karakter. |
-| `DEVICE_TOKEN` | String acak. Nilai yang sama ditulis di firmware. |
+| `DEVICE_TOKEN` | String acak. Tidak menggerakkan GPIO saat `LOCAL_RELAY=true`. |
+| `LOCAL_RELAY` | `true` agar GPIO Raspberry yang mengirim sinyal. |
+| `RELAY_GPIO` | Nomor BCM, `17` untuk pin fisik 11. |
+| `RELAY_ACTIVE_HIGH` | `false` untuk modul Songle 2 kanal ini. Kontak menutup saat pin LOW. |
+| `RELAY_ON_MS` | Lama kontak tertutup, bawaan `80`. |
+| `RELAY_GAP_MS` | Jeda antar main, bawaan `200`. |
 | `ADMIN_USERNAME` | Username admin pertama. |
 | `ADMIN_PASSWORD` | Kata sandi admin pertama, minimal 8 karakter. Dipakai hanya saat database masih kosong. |
 | `PAYMENT_EXPIRY_MINUTES` | Masa berlaku QR, 1 sampai 60. |
@@ -97,31 +88,3 @@ Admin pertama bisa masuk setelah server dijalankan. Dari situ admin menambah aku
 Webhook tetap tersedia di `POST /api/midtrans/notification`. Untuk komputer di rumah, teruskan HTTPS publik ke port server (misalnya dengan tunnel) dan isi URL itu di dashboard Midtrans atau di `MIDTRANS_NOTIFICATION_URL`. Tanpa webhook, langkah 6 tetap cukup untuk uji lokal karena halaman pembeli memicu pengecekan status.
 
 Sinyal tidak dikirim untuk status `pending`, `expire`, `deny`, `cancel`, atau `failure`. Notifikasi yang sama, atau notifikasi plus pengecekan status, tidak menambah antrean kedua. Nominal yang tidak sama dengan harga token juga tidak mengantrekan sinyal.
-
-## Flash ESP32
-
-Pasang [PlatformIO](https://platformio.org/install/cli) atau ekstensi PlatformIO di editor. Edit `firmware/include/config.h`:
-
-- `WIFI_SSID` dan `WIFI_PASSWORD`
-- `SERVER_URL` dengan IP komputer di jaringan yang sama, misalnya `http://192.168.1.10:3000`. Jangan memakai `localhost`.
-- `DEVICE_TOKEN` persis sama dengan `DEVICE_TOKEN` di `.env`
-
-IP komputer bisa dilihat dengan `ipconfig`, pada alamat IPv4 adaptor Wi-Fi. Izinkan port server di Windows Firewall agar ESP32 bisa menghubungi komputer.
-
-Colokkan papan lewat USB. Dari folder `firmware`:
-
-```powershell
-cd firmware
-pio run -t upload
-pio device monitor
-```
-
-Jika upload tidak mulai, tahan tombol IO0 saat USB dihubungkan, lalu ulangi upload. Monitor serial menampilkan sisa pulsa dan status Wi-Fi. Keluar dari monitor dengan `Ctrl+C`.
-
-Board PlatformIO yang dipakai adalah `esp32dev` (ESP32-WROOM-32). Firmware tidak memanggil API Midtrans.
-
-## Sisa pulsa saat listrik atau Wi-Fi putus
-
-ESP32 menyimpan nomor pembayaran dan sisa pulsa di memori NVS sebelum relay digerakkan. Setelah tiap main, sisa pulsa dikurangi dan ditulis lagi. Jika listrik putus di tengah antrean, setelah nyala ulang papan meneruskan sisa itu, bukan mengulang dari nol. Wi-Fi yang putus tidak menghentikan pulsa yang sudah tersimpan. Laporan selesai dikirim setelah semua pulsa lokal habis dan Wi-Fi kembali.
-
-Satu pembayaran hanya diambil satu kali untuk dijalankan. Jika responsnya hilang sebelum ESP32 sempat menyimpan, papan yang sama akan menerima pekerjaan itu lagi. Papan lain tidak bisa mengambil pekerjaan yang sudah dipegang. Setelah sisa pulsa tersimpan di NVS, papan tidak meminta antrean baru sampai laporan selesai terkirim, jadi pulsa yang sudah berjalan tidak diulang dari nol.

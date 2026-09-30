@@ -7,10 +7,10 @@
 
 // Alamat komputer yang menjalankan server, di jaringan yang sama.
 // Jangan pakai localhost: ESP32 tidak bisa menjangkau localhost komputer lain.
-#define SERVER_URL "http://192.168.1.10:3000"
+#define SERVER_URL "http://192.168.1.34:9000"
 
 // Harus sama dengan DEVICE_TOKEN di environment server.
-#define DEVICE_TOKEN "ganti-dengan-token-perangkat"
+#define DEVICE_TOKEN "f9522c1ac66a95aaee0d004e21e8ee1548af625630558063"
 
 // Kumparan relay Songle pada papan ESP32 1 kanal dengan terminal L/N
 // (keluarga ESP32 Relay AC X1) sudah tersambung ke GPIO16.

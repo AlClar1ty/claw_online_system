@@ -255,6 +255,32 @@ async function renderHistory(content) {
     detailRow(list, 'Sinyal selesai', formatTime(payment.signal_done_at));
     detailRow(list, 'Diperbarui', formatTime(payment.updated_at));
     detail.append(heading, list);
+    const waiting = payment.midtrans_status === 'pending' && payment.signal_status === 'none';
+    if (waiting && payment.qr_data_url) {
+      const image = document.createElement('img');
+      image.className = 'qr';
+      image.alt = 'QR pembayaran';
+      image.src = payment.qr_data_url;
+      detail.append(image);
+    }
+    if (waiting) {
+      const skip = document.createElement('button');
+      skip.type = 'button';
+      skip.className = 'secondary';
+      skip.textContent = 'Lewati';
+      skip.addEventListener('click', async () => {
+        note.textContent = '';
+        skip.disabled = true;
+        try {
+          await api(`/api/admin/payments/${payment.id}/skip`, { method: 'POST' });
+          await renderHistory(content);
+        } catch (error) {
+          note.textContent = error.message;
+          skip.disabled = false;
+        }
+      });
+      detail.append(skip);
+    }
   }
 
   const wrap = document.createElement('div');
