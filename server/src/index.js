@@ -2,7 +2,7 @@ import path from 'node:path';
 import bcrypt from 'bcryptjs';
 import { createApp } from './app.js';
 import { assertRuntimeConfig, configFromEnv, loadEnvFile } from './config.js';
-import { countAdmins, insertAdmin, openDatabase } from './db.js';
+import { countAdmins, getRelayTiming, insertAdmin, openDatabase } from './db.js';
 import { createPiRelay } from './gpio-relay.js';
 import { startLocalRelay } from './local-relay.js';
 import { createMidtransClient } from './midtrans.js';
@@ -26,7 +26,17 @@ const midtrans = createMidtransClient({
   notificationUrl: config.notificationUrl,
   acquirer: config.qrisAcquirer,
 });
-const app = createApp({ db, config, midtrans });
+const relayApi = {
+  requestManual() {
+    return { error: 'inactive' };
+  },
+};
+const app = createApp({
+  db,
+  config,
+  midtrans,
+  manualRelay: (pulses) => relayApi.requestManual(pulses),
+});
 let localRelay = null;
 if (config.localRelay) {
   localRelay = startLocalRelay({
@@ -36,9 +46,12 @@ if (config.localRelay) {
       activeHigh: config.relayActiveHigh,
     }),
     stateFile: path.join(path.dirname(config.dbPath), 'relay-state.json'),
-    onMs: config.relayOnMs,
-    gapMs: config.relayGapMs,
+    getTiming: () => getRelayTiming(db, {
+      onMs: config.relayOnMs,
+      gapMs: config.relayGapMs,
+    }),
   });
+  relayApi.requestManual = localRelay.requestManual;
   const level = config.relayActiveHigh ? 'HIGH' : 'LOW';
   console.log(`Relay GPIO BCM ${config.relayGpio}, kontak tertutup saat pin ${level}`);
 }

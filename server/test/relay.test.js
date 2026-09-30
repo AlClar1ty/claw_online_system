@@ -152,6 +152,35 @@ test('pekerjaan yang sudah dipegang perangkat lain dikembalikan ke GPIO', async 
   }
 });
 
+test('sinyal uji menutup kontak tanpa membuat pembayaran', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'claw-relay-'));
+  const db = openDatabase(':memory:');
+  const relay = fakeRelay();
+  const runner = startLocalRelay({
+    db,
+    relay,
+    stateFile: path.join(dir, 'relay-state.json'),
+    onMs: 10,
+    gapMs: 10,
+    pollMs: 15,
+    log() {},
+  });
+
+  try {
+    const first = runner.requestManual(2);
+    const second = runner.requestManual(1);
+    assert.equal(first.ok, true);
+    assert.equal(second.error, 'busy');
+    await waitFor(() => pulses(relay.events) >= 2);
+    assert.equal(pulses(relay.events), 2);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM payments').get().n, 0);
+  } finally {
+    await runner.stop();
+    db.close();
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('antrean HTTP ditolak saat relay lokal aktif', async () => {
   const db = openDatabase(':memory:');
   const app = createApp({

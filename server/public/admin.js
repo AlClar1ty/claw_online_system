@@ -135,6 +135,10 @@ async function renderShell() {
       view = 'admins';
       renderShell();
     }),
+    shellButton('Relay', view === 'relay', () => {
+      view = 'relay';
+      renderShell();
+    }),
     logout,
   );
   const content = document.createElement('main');
@@ -143,6 +147,7 @@ async function renderShell() {
   app.append(shell);
   if (view === 'admins') await renderAdmins(content);
   else if (view === 'history') await renderHistory(content);
+  else if (view === 'relay') await renderRelay(content);
   else await renderTokens(content);
 }
 
@@ -320,6 +325,109 @@ async function renderHistory(content) {
   table.append(thead, body);
   wrap.append(table);
   content.append(title, note, wrap, detail);
+}
+
+async function renderRelay(content) {
+  content.replaceChildren();
+  const title = document.createElement('h1');
+  title.textContent = 'Relay';
+  const note = messageLine();
+  const lead = document.createElement('p');
+  lead.className = 'lead';
+  lead.textContent = 'Lama kontak tertutup dan jeda sebelum main berikutnya. Nilai baru dipakai pada pulsa selanjutnya.';
+  const form = document.createElement('form');
+  form.className = 'row';
+  const onMs = document.createElement('input');
+  onMs.type = 'number';
+  onMs.min = '20';
+  onMs.max = '500';
+  onMs.step = '1';
+  onMs.required = true;
+  onMs.placeholder = 'Lama kontak (ms)';
+  onMs.setAttribute('aria-label', 'Lama kontak dalam milidetik');
+  onMs.className = 'grow';
+  const gapMs = document.createElement('input');
+  gapMs.type = 'number';
+  gapMs.min = '0';
+  gapMs.max = '2000';
+  gapMs.step = '1';
+  gapMs.required = true;
+  gapMs.placeholder = 'Jeda (ms)';
+  gapMs.setAttribute('aria-label', 'Jeda dalam milidetik');
+  gapMs.className = 'grow';
+  const submit = document.createElement('button');
+  submit.type = 'submit';
+  submit.className = 'primary';
+  submit.textContent = 'Simpan';
+  form.append(onMs, gapMs, submit);
+  try {
+    const timing = await api('/api/admin/relay');
+    onMs.value = String(timing.on_ms);
+    gapMs.value = String(timing.gap_ms);
+  } catch (error) {
+    note.textContent = error.message;
+  }
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    note.textContent = '';
+    note.className = 'note';
+    submit.disabled = true;
+    try {
+      const saved = await api('/api/admin/relay', {
+        method: 'PATCH',
+        body: { on_ms: Number(onMs.value), gap_ms: Number(gapMs.value) },
+      });
+      onMs.value = String(saved.on_ms);
+      gapMs.value = String(saved.gap_ms);
+      note.className = 'note ok';
+      note.textContent = 'Waktu relay disimpan.';
+    } catch (error) {
+      note.textContent = error.message;
+    } finally {
+      submit.disabled = false;
+    }
+  });
+  content.append(title, lead, form, note);
+  const testLead = document.createElement('p');
+  testLead.className = 'lead';
+  testLead.textContent = 'Kirim pulsa ke mesin tanpa pembayaran. Dipakai untuk mencoba relay.';
+  const testForm = document.createElement('form');
+  testForm.className = 'row';
+  const pulses = document.createElement('input');
+  pulses.type = 'number';
+  pulses.min = '1';
+  pulses.max = '20';
+  pulses.step = '1';
+  pulses.required = true;
+  pulses.value = '1';
+  pulses.placeholder = 'Jumlah pulsa';
+  pulses.setAttribute('aria-label', 'Jumlah pulsa uji');
+  pulses.className = 'grow';
+  const send = document.createElement('button');
+  send.type = 'submit';
+  send.className = 'secondary';
+  send.textContent = 'Kirim sinyal';
+  testForm.append(pulses, send);
+  const testNote = messageLine();
+  testForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    testNote.textContent = '';
+    testNote.className = 'note';
+    send.disabled = true;
+    try {
+      const result = await api('/api/admin/relay/test', {
+        method: 'POST',
+        body: { pulses: Number(pulses.value) },
+      });
+      testNote.className = 'note ok';
+      testNote.textContent = `Sinyal uji dikirim, ${result.pulses} pulsa.`;
+    } catch (error) {
+      testNote.textContent = error.message;
+    } finally {
+      send.disabled = false;
+    }
+  });
+  content.append(testLead, testForm, testNote);
 }
 
 async function renderTokens(content) {

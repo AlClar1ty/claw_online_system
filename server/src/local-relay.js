@@ -39,10 +39,12 @@ export function startLocalRelay({
   gapMs,
   pollMs = 250,
   owner = LOCAL_OWNER,
+  getTiming,
   log = console.log,
 }) {
   let stopped = false;
   let pendingWait = null;
+  let manualRemain = 0;
   releaseForeignJobs(db, owner);
 
   function sleep(ms) {
@@ -109,6 +111,19 @@ export function startLocalRelay({
         return;
       }
 
+      if (!state && manualRemain > 0) {
+        await relay.setClosed(true);
+        const timing = typeof getTiming === 'function' ? getTiming() : { onMs, gapMs };
+        log(`Sinyal uji, sisa ${manualRemain}`);
+        await sleep(timing.onMs);
+        await relay.setClosed(false);
+        if (stopped) return;
+        manualRemain -= 1;
+        log(`Pulsa uji selesai, sisa ${manualRemain}`);
+        if (manualRemain > 0) await sleep(timing.gapMs);
+        return;
+      }
+
       if (!state) {
         const job = claimNextJob(db, owner);
         if (!job) {
@@ -137,18 +152,32 @@ export function startLocalRelay({
       }
 
       await relay.setClosed(true);
+      const timing = typeof getTiming === 'function' ? getTiming() : { onMs, gapMs };
       log(`Kontak GPIO tertutup, sisa ${state.remain}`);
-      await sleep(onMs);
+      await sleep(timing.onMs);
       await relay.setClosed(false);
       if (stopped) return;
       state = { paymentId: state.paymentId, remain: state.remain - 1 };
       writeState(stateFile, state);
       log(`Pulsa selesai, sisa ${state.remain}`);
-      if (state.remain > 0) await sleep(gapMs);
+      if (state.remain > 0) await sleep(timing.gapMs);
   }
 
   return {
     done: loop,
+    requestManual(pulses) {
+      if (!Number.isInteger(pulses) || pulses < 1 || pulses > 20) return { error: 'invalid' };
+      if (manualRemain > 0) return { error: 'busy' };
+      try {
+        const state = readState(stateFile);
+        if (state && state.remain > 0) return { error: 'busy' };
+      } catch {
+        return { error: 'busy' };
+      }
+      manualRemain = pulses;
+      wake();
+      return { ok: true, pulses };
+    },
     async stop() {
       stopped = true;
       wake();

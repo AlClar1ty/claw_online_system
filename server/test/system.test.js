@@ -328,6 +328,30 @@ test('admin, token, pembayaran, dan sinyal hanya sekali', async () => {
   const skipDone = await request('/api/admin/payments/1/skip', { method: 'POST', cookie });
   assert.equal(skipDone.status, 409);
 
+  const relayDenied = await request('/api/admin/relay');
+  assert.equal(relayDenied.status, 401);
+  const relayDefaults = await request('/api/admin/relay', { cookie });
+  assert.equal(relayDefaults.status, 200);
+  assert.equal(relayDefaults.data.on_ms, 80);
+  assert.equal(relayDefaults.data.gap_ms, 200);
+  const relaySaved = await request('/api/admin/relay', {
+    method: 'PATCH',
+    cookie,
+    body: { on_ms: 100, gap_ms: 250 },
+  });
+  assert.equal(relaySaved.status, 200);
+  assert.deepEqual(relaySaved.data, { on_ms: 100, gap_ms: 250 });
+  const relayAgain = await request('/api/admin/relay', { cookie });
+  assert.equal(relayAgain.data.gap_ms, 250);
+  const relayBad = await request('/api/admin/relay', {
+    method: 'PATCH',
+    cookie,
+    body: { on_ms: 1, gap_ms: 10 },
+  });
+  assert.equal(relayBad.status, 400);
+  const testDenied = await request('/api/admin/relay/test', { method: 'POST', cookie, body: { pulses: 1 } });
+  assert.equal(testDenied.status, 409);
+
   const hiddenHistory = await request('/api/admin/payments');
   assert.equal(hiddenHistory.status, 401);
   const history = await request('/api/admin/payments', { cookie });

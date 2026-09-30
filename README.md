@@ -24,7 +24,7 @@ IN2 tidak disambung. Jumper RY-VCC ke VCC dibiarkan terpasang. Pin 1 (3,3 V) tid
 
 Pada sekrup kanal 1, COM dan NO pergi ke dua kawat sinyal koin. Urutan kedua kawat bebas. NC kosong. Sekrup tengah pada terminal ini biasanya COM; cocokkan dengan cetakan di papan. Kanal 2 tidak dipakai.
 
-Modul ini menutup COM–NO saat IN1 berlevel LOW, sekitar 80 ms, lalu jeda sekitar 200 ms. Saat tidak ada main, pin 11 berlevel HIGH dan kontak lepas. Nilai waktunya `RELAY_ON_MS` dan `RELAY_GAP_MS`. Di environment, `RELAY_ACTIVE_HIGH=false`.
+Modul ini menutup COM–NO saat IN1 berlevel LOW, sekitar 80 ms, lalu jeda sekitar 200 ms. Saat tidak ada main, pin 11 berlevel HIGH dan kontak lepas. Kedua waktu, dan tombol kirim sinyal uji, ada di menu Relay pada halaman admin. Nilai awal waktunya `RELAY_ON_MS` dan `RELAY_GAP_MS`. Di environment, `RELAY_ACTIVE_HIGH=false`.
 
 Sisa pulsa ditulis ke `server/data/relay-state.json` sebelum relay bergerak. Jika listrik putus di tengah antrean, setelah nyala ulang Pi meneruskan sisa itu. Satu pembayaran hanya diambil satu kali. Permintaan HTTP ke `/api/machine/jobs` ditolak supaya perangkat lain tidak mengirim sinyal yang sama.
 

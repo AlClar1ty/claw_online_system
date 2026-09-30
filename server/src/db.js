@@ -68,6 +68,12 @@ function migrate(db) {
   if (!columns.some((column) => column.name === 'skipped')) {
     db.exec('ALTER TABLE payments ADD COLUMN skipped INTEGER NOT NULL DEFAULT 0');
   }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+  `);
 }
 
 export function countAdmins(db) {
@@ -195,6 +201,33 @@ export function listPayments(db) {
     WHERE NOT (skipped = 1 AND midtrans_status = 'pending' AND signal_status = 'none')
     ORDER BY id DESC
   `).all();
+}
+
+export function getRelayTiming(db, defaults) {
+  const onRow = db.prepare(`SELECT value FROM settings WHERE key = 'relay_on_ms'`).get();
+  const gapRow = db.prepare(`SELECT value FROM settings WHERE key = 'relay_gap_ms'`).get();
+  const onMs = onRow ? Number(onRow.value) : defaults.onMs;
+  const gapMs = gapRow ? Number(gapRow.value) : defaults.gapMs;
+  return {
+    onMs: Number.isInteger(onMs) ? onMs : defaults.onMs,
+    gapMs: Number.isInteger(gapMs) ? gapMs : defaults.gapMs,
+  };
+}
+
+export function setRelayTiming(db, { onMs, gapMs }) {
+  if (!Number.isInteger(onMs) || onMs < 20 || onMs > 500) {
+    return { error: 'Lama kontak harus bilangan bulat 20 sampai 500 milidetik' };
+  }
+  if (!Number.isInteger(gapMs) || gapMs < 0 || gapMs > 2000) {
+    return { error: 'Jeda harus bilangan bulat 0 sampai 2000 milidetik' };
+  }
+  const save = db.prepare(`
+    INSERT INTO settings (key, value) VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+  `);
+  save.run('relay_on_ms', String(onMs));
+  save.run('relay_gap_ms', String(gapMs));
+  return { ok: true, onMs, gapMs };
 }
 
 export function skipPendingPayment(db, id) {

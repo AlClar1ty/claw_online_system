@@ -19,6 +19,8 @@ import {
   listAdmins,
   listPayments,
   listTokens,
+  getRelayTiming,
+  setRelayTiming,
   skipPendingPayment,
   recordGatewayUpdate,
   updateAdmin,
@@ -123,7 +125,7 @@ function uniqueError(error) {
   return String(error?.message || '').includes('UNIQUE');
 }
 
-export function createApp({ db, config, midtrans }) {
+export function createApp({ db, config, midtrans, manualRelay }) {
   const app = express();
   const loginAttempts = new Map();
   const statusCheckedAt = new Map();
@@ -353,6 +355,47 @@ export function createApp({ db, config, midtrans }) {
       return;
     }
     res.json({ ok: true });
+  });
+
+  function relayDefaults() {
+    return {
+      onMs: Number.isInteger(config.relayOnMs) ? config.relayOnMs : 80,
+      gapMs: Number.isInteger(config.relayGapMs) ? config.relayGapMs : 200,
+    };
+  }
+
+  app.get('/api/admin/relay', requireAdmin, (req, res) => {
+    const timing = getRelayTiming(db, relayDefaults());
+    res.json({ on_ms: timing.onMs, gap_ms: timing.gapMs });
+  });
+
+  app.patch('/api/admin/relay', requireAdmin, (req, res) => {
+    const onMs = req.body?.on_ms;
+    const gapMs = req.body?.gap_ms;
+    const result = setRelayTiming(db, { onMs, gapMs });
+    if (result.error) {
+      res.status(400).json({ error: result.error });
+      return;
+    }
+    res.json({ on_ms: result.onMs, gap_ms: result.gapMs });
+  });
+
+  app.post('/api/admin/relay/test', requireAdmin, (req, res) => {
+    if (!config.localRelay || typeof manualRelay !== 'function') {
+      res.status(409).json({ error: 'Relay GPIO tidak aktif' });
+      return;
+    }
+    const pulses = req.body?.pulses === undefined ? 1 : req.body.pulses;
+    const result = manualRelay(pulses);
+    if (result.error === 'invalid') {
+      res.status(400).json({ error: 'Jumlah pulsa uji harus 1 sampai 20' });
+      return;
+    }
+    if (result.error === 'busy') {
+      res.status(409).json({ error: 'Relay sedang mengirim sinyal' });
+      return;
+    }
+    res.json({ ok: true, pulses: result.pulses });
   });
 
   app.get('/api/admin/tokens', requireAdmin, (req, res) => {
