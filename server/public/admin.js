@@ -57,6 +57,9 @@ function renderLogin(message = '') {
   screen.className = 'login-screen';
   const panel = document.createElement('form');
   panel.className = 'panel stack';
+  const brand = document.createElement('p');
+  brand.className = 'brand';
+  brand.textContent = 'AlMa Claw System';
   const title = document.createElement('h1');
   title.textContent = 'Masuk admin';
   const note = document.createElement('p');
@@ -68,7 +71,7 @@ function renderLogin(message = '') {
   submit.className = 'primary';
   submit.type = 'submit';
   submit.textContent = 'Masuk';
-  panel.append(title, field('Username', username), field('Kata sandi', password), note, submit);
+  panel.append(brand, title, field('Username', username), field('Kata sandi', password), note, submit);
   panel.addEventListener('submit', async (event) => {
     event.preventDefault();
     submit.disabled = true;
@@ -108,7 +111,7 @@ async function renderShell() {
   side.className = 'side';
   const brand = document.createElement('p');
   brand.className = 'brand';
-  brand.textContent = 'Mesin Capit';
+  brand.textContent = 'AlMa Claw System';
   const who = document.createElement('p');
   who.textContent = me.username;
   const logout = document.createElement('button');
