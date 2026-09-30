@@ -45,6 +45,7 @@ export function startLocalRelay({
   let stopped = false;
   let pendingWait = null;
   let manualRemain = 0;
+  let dropJob = false;
   releaseForeignJobs(db, owner);
 
   function sleep(ms) {
@@ -64,6 +65,13 @@ export function startLocalRelay({
     const { resolve } = pendingWait;
     pendingWait = null;
     resolve();
+  }
+
+  function jobDropped() {
+    if (!dropJob) return false;
+    dropJob = false;
+    clearState(stateFile);
+    return true;
   }
 
   async function finishPayment(paymentId) {
@@ -102,6 +110,10 @@ export function startLocalRelay({
   })();
 
   async function tick() {
+      if (jobDropped()) {
+        await relay.setClosed(false);
+        return;
+      }
       let state = null;
       try {
         state = readState(stateFile);
@@ -117,7 +129,7 @@ export function startLocalRelay({
         log(`Sinyal uji, sisa ${manualRemain}`);
         await sleep(timing.onMs);
         await relay.setClosed(false);
-        if (stopped) return;
+        if (stopped || jobDropped()) return;
         manualRemain -= 1;
         log(`Pulsa uji selesai, sisa ${manualRemain}`);
         if (manualRemain > 0) await sleep(timing.gapMs);
@@ -156,7 +168,7 @@ export function startLocalRelay({
       log(`Kontak GPIO tertutup, sisa ${state.remain}`);
       await sleep(timing.onMs);
       await relay.setClosed(false);
-      if (stopped) return;
+      if (stopped || jobDropped()) return;
       state = { paymentId: state.paymentId, remain: state.remain - 1 };
       writeState(stateFile, state);
       log(`Pulsa selesai, sisa ${state.remain}`);
@@ -177,6 +189,23 @@ export function startLocalRelay({
       manualRemain = pulses;
       wake();
       return { ok: true, pulses };
+    },
+    abandon() {
+      dropJob = true;
+      manualRemain = 0;
+      clearState(stateFile);
+      wake();
+      return relay.setClosed(false).catch(() => {});
+    },
+    abandonMatching(ids) {
+      let state = null;
+      try {
+        state = readState(stateFile);
+      } catch {
+        return undefined;
+      }
+      if (!state || !ids.includes(state.paymentId)) return undefined;
+      return this.abandon();
     },
     async stop() {
       stopped = true;

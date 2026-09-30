@@ -31,13 +31,16 @@ const relayApi = {
     return { error: 'inactive' };
   },
 };
+let localRelay = null;
 const app = createApp({
   db,
   config,
   midtrans,
   manualRelay: (pulses) => relayApi.requestManual(pulses),
+  onResetHistory(ids) {
+    return localRelay ? localRelay.abandonMatching(ids) : undefined;
+  },
 });
-let localRelay = null;
 if (config.localRelay) {
   localRelay = startLocalRelay({
     db,

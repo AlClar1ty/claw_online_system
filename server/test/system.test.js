@@ -387,6 +387,54 @@ test('admin, token, pembayaran, dan sinyal hanya sekali', async () => {
   assert.equal(badDate.status, 400);
   const reversed = await request('/api/admin/payments?from=2026-09-30&to=2026-09-01', { cookie });
   assert.equal(reversed.status, 400);
+
+  const resetDenied = await request('/api/admin/payments/reset', {
+    method: 'POST',
+    body: { username: 'admin', password: 'kata-sandi-admin', ids: [recorded.id] },
+  });
+  assert.equal(resetDenied.status, 401);
+  const resetWrong = await request('/api/admin/payments/reset', {
+    method: 'POST',
+    cookie,
+    body: { username: 'admin', password: 'salah-sekali', ids: [recorded.id] },
+  });
+  assert.equal(resetWrong.status, 401);
+  const resetEmpty = await request('/api/admin/payments/reset', {
+    method: 'POST',
+    cookie,
+    body: { username: 'admin', password: 'kata-sandi-admin', ids: [] },
+  });
+  assert.equal(resetEmpty.status, 400);
+  const stillThere = await request('/api/admin/payments', { cookie });
+  assert.equal(stillThere.data.payments.length > 0, true);
+  const resetOne = await request('/api/admin/payments/reset', {
+    method: 'POST',
+    cookie,
+    body: { username: 'admin', password: 'kata-sandi-admin', ids: [recorded.id] },
+  });
+  assert.equal(resetOne.status, 200);
+  assert.equal(resetOne.data.deleted, 1);
+  const afterOne = await request('/api/admin/payments', { cookie });
+  assert.equal(afterOne.data.payments.some((item) => item.id === recorded.id), false);
+  assert.equal(afterOne.data.payments.length, stillThere.data.payments.length - 1);
+  const resetRest = await request('/api/admin/payments/reset', {
+    method: 'POST',
+    cookie,
+    body: {
+      username: 'admin',
+      password: 'kata-sandi-admin',
+      ids: afterOne.data.payments.map((item) => item.id),
+    },
+  });
+  assert.equal(resetRest.status, 200);
+  assert.equal(resetRest.data.deleted, afterOne.data.payments.length);
+  const cleared = await request('/api/admin/payments', { cookie });
+  assert.equal(cleared.data.payments.length, 0);
+  const dashAfter = await request('/api/admin/dashboard', { cookie });
+  assert.equal(dashAfter.data.month_total, 0);
+  assert.equal(dashAfter.data.today_transactions, 0);
+  const tokens = await request('/api/admin/tokens', { cookie });
+  assert.equal(tokens.data.tokens.length > 0, true);
 });
 
 test('dashboard mengikuti tanggal Jakarta', () => {

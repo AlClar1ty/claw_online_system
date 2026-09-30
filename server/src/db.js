@@ -201,12 +201,15 @@ export function jakartaDate(value) {
 }
 
 export function listPayments(db, filters = {}) {
+  const hiddenSkipped = filters.includeSkipped
+    ? ''
+    : 'WHERE NOT (skipped = 1 AND midtrans_status = \'pending\' AND signal_status = \'none\')';
   const rows = db.prepare(`
     SELECT id, order_id, token_id, price, play_count, midtrans_transaction_id,
            midtrans_status, fraud_status, signal_status, expires_at, qr_image,
            signal_queued_at, signal_accepted_at, signal_done_at, created_at, updated_at
     FROM payments
-    WHERE NOT (skipped = 1 AND midtrans_status = 'pending' AND signal_status = 'none')
+    ${hiddenSkipped}
     ORDER BY id DESC
   `).all();
   return rows.filter((row) => {
@@ -260,6 +263,21 @@ export function dashboardStats(db, now = new Date()) {
     average_plays: Math.round(average * 10) / 10,
     daily,
   };
+}
+
+export function resetPayments(db, ids) {
+  const unique = [...new Set(ids)];
+  const remove = db.prepare('DELETE FROM payments WHERE id = ?');
+  let deleted = 0;
+  db.exec('BEGIN IMMEDIATE');
+  try {
+    for (const id of unique) deleted += remove.run(id).changes;
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+  return deleted;
 }
 
 export function getRelayTiming(db, defaults) {

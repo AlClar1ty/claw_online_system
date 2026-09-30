@@ -19,6 +19,7 @@ import {
   listAdmins,
   dashboardStats,
   listPayments,
+  resetPayments,
   listTokens,
   getRelayTiming,
   setRelayTiming,
@@ -66,6 +67,16 @@ function queryChoice(value, allowed) {
   if (value === undefined || value === '') return '';
   if (typeof value !== 'string' || !allowed.includes(value)) return null;
   return value;
+}
+
+function paymentIds(value) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 1000) return null;
+  const ids = [];
+  for (const item of value) {
+    if (typeof item !== 'number' || !Number.isInteger(item) || item < 1) return null;
+    ids.push(item);
+  }
+  return ids;
 }
 
 function publicAdmin(row) {
@@ -143,7 +154,7 @@ function uniqueError(error) {
   return String(error?.message || '').includes('UNIQUE');
 }
 
-export function createApp({ db, config, midtrans, manualRelay }) {
+export function createApp({ db, config, midtrans, manualRelay, onResetHistory }) {
   const app = express();
   const loginAttempts = new Map();
   const statusCheckedAt = new Map();
@@ -356,7 +367,7 @@ export function createApp({ db, config, midtrans, manualRelay }) {
       return;
     }
     res.json({
-      payments: listPayments(db, { from, to, payment, signal }).map((row) => {
+      payments: listPayments(db, { from, to, payment, signal, includeSkipped: req.query.all === '1' }).map((row) => {
         const waiting = row.midtrans_status === 'pending' && row.signal_status === 'none';
         const payment = {
           id: row.id,
@@ -380,6 +391,35 @@ export function createApp({ db, config, midtrans, manualRelay }) {
       }),
     });
   });
+
+  app.post('/api/admin/payments/reset', requireAdmin, asyncRoute(async (req, res) => {
+    const ip = req.socket.remoteAddress || 'local';
+    if (!loginAllowed(ip)) {
+      res.status(429).json({ error: 'Terlalu banyak percobaan. Coba lagi nanti.' });
+      return;
+    }
+    const username = typeof req.body?.username === 'string' ? req.body.username.trim() : '';
+    const password = typeof req.body?.password === 'string' ? req.body.password : '';
+    if (!username || !password) {
+      res.status(400).json({ error: 'Username dan kata sandi harus diisi' });
+      return;
+    }
+    const admin = findAdminByUsername(db, username);
+    const match = admin ? await bcrypt.compare(password, admin.password_hash) : false;
+    if (!admin || !match || admin.active !== 1) {
+      recordLoginFailure(ip);
+      res.status(401).json({ error: 'Username atau kata sandi salah' });
+      return;
+    }
+    const ids = paymentIds(req.body?.ids);
+    if (!ids) {
+      res.status(400).json({ error: 'Pilih riwayat yang ingin direset' });
+      return;
+    }
+    const deleted = resetPayments(db, ids);
+    if (typeof onResetHistory === 'function') await onResetHistory(ids);
+    res.json({ deleted });
+  }));
 
   app.post('/api/admin/payments/:id/skip', requireAdmin, (req, res) => {
     const id = routeId(req.params.id);

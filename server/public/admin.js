@@ -113,6 +113,7 @@ async function renderShell() {
   brand.className = 'brand';
   brand.textContent = 'AlMa Claw System';
   const who = document.createElement('p');
+  who.className = 'who';
   who.textContent = me.username;
   const logout = document.createElement('button');
   logout.type = 'button';
@@ -123,9 +124,9 @@ async function renderShell() {
     me = null;
     renderLogin();
   });
-  side.append(
-    brand,
-    who,
+  const nav = document.createElement('nav');
+  nav.className = 'nav';
+  nav.append(
     shellButton('Dashboard', view === 'dashboard', () => {
       view = 'dashboard';
       renderShell();
@@ -146,16 +147,23 @@ async function renderShell() {
       view = 'relay';
       renderShell();
     }),
+    shellButton('Reset', view === 'reset', () => {
+      view = 'reset';
+      renderShell();
+    }),
     logout,
   );
+  side.append(brand, who, nav);
   const content = document.createElement('main');
   content.className = 'content';
   shell.append(side, content);
   app.append(shell);
+  nav.querySelector('[aria-current="page"]')?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
   if (view === 'admins') await renderAdmins(content);
   else if (view === 'history') await renderHistory(content);
   else if (view === 'relay') await renderRelay(content);
   else if (view === 'tokens') await renderTokens(content);
+  else if (view === 'reset') await renderReset(content);
   else await renderDashboard(content);
 }
 
@@ -254,6 +262,135 @@ function averageText(value) {
 
 function dayLabel(date) {
   return date.slice(8, 10).replace(/^0/, '');
+}
+
+async function renderReset(content, message = '') {
+  content.replaceChildren();
+  const title = document.createElement('h1');
+  title.textContent = 'Reset';
+  const lead = document.createElement('p');
+  lead.className = 'lead';
+  lead.textContent = 'Centang riwayat yang ingin dihapus. Token, akun admin, dan pengaturan relay tetap ada.';
+  const note = messageLine();
+  if (message) {
+    note.className = 'note ok';
+    note.textContent = message;
+  }
+  content.append(title, lead, note);
+  const data = await api('/api/admin/payments?all=1').catch((error) => {
+    note.className = 'note';
+    note.textContent = error.message;
+    return { payments: [] };
+  });
+  const payments = data.payments || [];
+  if (payments.length === 0 && !note.textContent) {
+    const empty = document.createElement('p');
+    empty.className = 'lead';
+    empty.textContent = 'Belum ada riwayat pembelian.';
+    content.append(empty);
+    return;
+  }
+  if (payments.length === 0) return;
+
+  const boxes = [];
+  const form = document.createElement('form');
+  form.className = 'reset-page';
+  const wrap = document.createElement('div');
+  wrap.className = 'table-wrap';
+  const table = document.createElement('table');
+  const pickAll = document.createElement('input');
+  pickAll.type = 'checkbox';
+  pickAll.setAttribute('aria-label', 'Pilih semua');
+  const pickBar = document.createElement('label');
+  pickBar.className = 'pick-all check';
+  pickBar.append(pickAll, document.createTextNode('Pilih semua'));
+  const head = document.createElement('tr');
+  const pickCell = document.createElement('th');
+  pickCell.textContent = 'Pilih';
+  head.append(pickCell);
+  for (const label of ['Waktu', 'Main', 'Harga', 'Pembayaran', 'Sinyal']) {
+    const cell = document.createElement('th');
+    cell.textContent = label;
+    head.append(cell);
+  }
+  const thead = document.createElement('thead');
+  thead.append(head);
+  const body = document.createElement('tbody');
+  function syncAll() {
+    const chosen = boxes.filter((box) => box.checked).length;
+    pickAll.checked = chosen === boxes.length;
+    pickAll.indeterminate = chosen > 0 && chosen < boxes.length;
+  }
+  pickAll.addEventListener('change', () => {
+    for (const box of boxes) box.checked = pickAll.checked;
+    pickAll.indeterminate = false;
+  });
+  for (const payment of payments) {
+    const row = document.createElement('tr');
+    const pick = document.createElement('td');
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.value = String(payment.id);
+    box.setAttribute('aria-label', `Pilih pembayaran ${payment.id}`);
+    box.addEventListener('change', syncAll);
+    boxes.push(box);
+    pick.dataset.label = 'Pilih';
+    pick.append(box);
+    const when = document.createElement('td');
+    when.dataset.label = 'Waktu';
+    when.textContent = formatTime(payment.created_at);
+    const plays = document.createElement('td');
+    plays.dataset.label = 'Main';
+    plays.textContent = `${payment.play_count} main`;
+    const price = document.createElement('td');
+    price.dataset.label = 'Harga';
+    price.textContent = rupiah(payment.price);
+    const pay = document.createElement('td');
+    pay.dataset.label = 'Pembayaran';
+    pay.append(paymentBadge(payment.midtrans_status));
+    const signal = document.createElement('td');
+    signal.dataset.label = 'Sinyal';
+    signal.append(signalBadge(payment.signal_status));
+    row.append(pick, when, plays, price, pay, signal);
+    body.append(row);
+  }
+  table.append(thead, body);
+  wrap.append(table);
+  const credentials = document.createElement('div');
+  credentials.className = 'reset-form stack';
+  const username = textInput('text', 'username', 'username');
+  const password = textInput('password', 'password', 'current-password');
+  const submit = document.createElement('button');
+  submit.type = 'submit';
+  submit.className = 'danger';
+  submit.textContent = 'Reset riwayat';
+  credentials.append(field('Username', username), field('Kata sandi', password), submit);
+  form.append(pickBar, wrap, credentials);
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    note.className = 'note';
+    note.textContent = '';
+    const ids = boxes.filter((box) => box.checked).map((box) => Number(box.value));
+    if (ids.length === 0) {
+      note.textContent = 'Pilih riwayat yang ingin direset.';
+      return;
+    }
+    submit.disabled = true;
+    try {
+      const result = await api('/api/admin/payments/reset', {
+        method: 'POST',
+        body: { username: username.value.trim(), password: password.value, ids },
+      });
+      const text = result.deleted === 0
+        ? 'Riwayat yang dipilih sudah tidak ada.'
+        : `Riwayat dihapus. ${result.deleted} pembelian terhapus.`;
+      await renderReset(content, text);
+    } catch (error) {
+      note.textContent = error.message;
+      submit.disabled = false;
+    }
+  });
+  content.append(form);
 }
 
 async function renderDashboard(content) {
@@ -464,16 +601,22 @@ async function renderHistory(content) {
   for (const payment of payments) {
     const row = document.createElement('tr');
     const when = document.createElement('td');
+    when.dataset.label = 'Waktu';
     when.textContent = formatTime(payment.created_at);
     const plays = document.createElement('td');
+    plays.dataset.label = 'Main';
     plays.textContent = `${payment.play_count} main`;
     const price = document.createElement('td');
+    price.dataset.label = 'Harga';
     price.textContent = rupiah(payment.price);
     const pay = document.createElement('td');
+    pay.dataset.label = 'Pembayaran';
     pay.append(paymentBadge(payment.midtrans_status));
     const signal = document.createElement('td');
+    signal.dataset.label = 'Sinyal';
     signal.append(signalBadge(payment.signal_status));
     const actions = document.createElement('td');
+    actions.className = 'actions';
     const open = document.createElement('button');
     open.type = 'button';
     open.className = 'secondary';
@@ -668,15 +811,19 @@ async function renderTokens(content) {
   for (const token of data.tokens) {
     const row = document.createElement('tr');
     const playsCell = document.createElement('td');
+    playsCell.dataset.label = 'Main';
     playsCell.textContent = `${token.play_count} main`;
     const priceCell = document.createElement('td');
+    priceCell.dataset.label = 'Harga';
     priceCell.textContent = rupiah(token.price);
     const state = document.createElement('td');
+    state.dataset.label = 'Status';
     const badge = document.createElement('span');
     badge.className = `badge ${token.active ? 'on' : 'off'}`;
     badge.textContent = token.active ? 'Aktif' : 'Nonaktif';
     state.append(badge);
     const actions = document.createElement('td');
+    actions.className = 'actions';
     const edit = document.createElement('button');
     edit.type = 'button';
     edit.className = 'secondary';
@@ -720,7 +867,10 @@ async function renderTokens(content) {
     body.append(row);
   }
   table.append(thead, body);
-  content.append(title, note, form, table);
+  const tokenWrap = document.createElement('div');
+  tokenWrap.className = 'table-wrap';
+  tokenWrap.append(table);
+  content.append(title, note, form, tokenWrap);
 }
 
 async function renderAdmins(content) {
@@ -793,13 +943,16 @@ async function renderAdmins(content) {
   for (const admin of data.admins) {
     const row = document.createElement('tr');
     const name = document.createElement('td');
+    name.dataset.label = 'Username';
     name.textContent = admin.username;
     const state = document.createElement('td');
+    state.dataset.label = 'Status';
     const badge = document.createElement('span');
     badge.className = `badge ${admin.active ? 'on' : 'off'}`;
     badge.textContent = admin.active ? 'Aktif' : 'Nonaktif';
     state.append(badge);
     const actions = document.createElement('td');
+    actions.className = 'actions';
     const edit = document.createElement('button');
     edit.type = 'button';
     edit.className = 'secondary';
@@ -845,7 +998,10 @@ async function renderAdmins(content) {
     body.append(row);
   }
   table.append(thead, body);
-  content.append(title, note, form, table);
+  const adminWrap = document.createElement('div');
+  adminWrap.className = 'table-wrap';
+  adminWrap.append(table);
+  content.append(title, note, form, adminWrap);
 }
 
 const session = await api('/api/admin/me').catch((error) => {
