@@ -1,6 +1,6 @@
 const app = document.querySelector('#app');
 let me = null;
-let view = 'tokens';
+let view = 'dashboard';
 
 function rupiah(value) {
   return new Intl.NumberFormat('id-ID', {
@@ -126,6 +126,10 @@ async function renderShell() {
   side.append(
     brand,
     who,
+    shellButton('Dashboard', view === 'dashboard', () => {
+      view = 'dashboard';
+      renderShell();
+    }),
     shellButton('Token', view === 'tokens', () => {
       view = 'tokens';
       renderShell();
@@ -151,7 +155,8 @@ async function renderShell() {
   if (view === 'admins') await renderAdmins(content);
   else if (view === 'history') await renderHistory(content);
   else if (view === 'relay') await renderRelay(content);
-  else await renderTokens(content);
+  else if (view === 'tokens') await renderTokens(content);
+  else await renderDashboard(content);
 }
 
 function messageLine() {
@@ -220,12 +225,165 @@ function detailRow(list, label, value) {
   list.append(term, description);
 }
 
+function todayJakarta() {
+  return new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+let historyFilter = null;
+
+function currentHistoryFilter() {
+  if (!historyFilter) {
+    const today = todayJakarta();
+    historyFilter = { from: today, to: today, payment: '', signal: '' };
+  }
+  return historyFilter;
+}
+
+function selectOption(value, label, selected) {
+  const option = document.createElement('option');
+  option.value = value;
+  option.textContent = label;
+  option.selected = value === selected;
+  return option;
+}
+
+function averageText(value) {
+  const number = new Intl.NumberFormat('id-ID', { maximumFractionDigits: 1 }).format(value);
+  return `${number} main`;
+}
+
+function dayLabel(date) {
+  return date.slice(8, 10).replace(/^0/, '');
+}
+
+async function renderDashboard(content) {
+  content.replaceChildren();
+  const title = document.createElement('h1');
+  title.textContent = 'Dashboard';
+  const note = messageLine();
+  const lead = document.createElement('p');
+  lead.className = 'lead';
+  lead.textContent = 'Uang masuk dan permainan dihitung dari pembayaran yang berhasil.';
+  content.append(title, lead, note);
+  let stats;
+  try {
+    stats = await api('/api/admin/dashboard');
+  } catch (error) {
+    note.textContent = error.message;
+    return;
+  }
+  const cards = document.createElement('section');
+  cards.className = 'stats';
+  const items = [
+    ['Uang masuk bulan ini', rupiah(stats.month_total)],
+    ['Uang masuk hari ini', rupiah(stats.today_total)],
+    ['Permainan hari ini', `${stats.today_transactions} transaksi`],
+    ['Rata-rata token', averageText(stats.average_plays)],
+  ];
+  for (const [label, value] of items) {
+    const card = document.createElement('article');
+    card.className = 'stat';
+    const name = document.createElement('span');
+    name.textContent = label;
+    const strong = document.createElement('strong');
+    strong.textContent = value;
+    card.append(name, strong);
+    cards.append(card);
+  }
+  const chartCard = document.createElement('section');
+  chartCard.className = 'chart-card';
+  const chartTitle = document.createElement('h2');
+  chartTitle.textContent = 'Pemain per hari';
+  const chart = document.createElement('div');
+  chart.className = 'chart';
+  const daily = stats.daily || [];
+  const peak = Math.max(1, ...daily.map((item) => item.transactions));
+  chart.setAttribute('role', 'img');
+  chart.setAttribute('aria-label', daily.map((item) => `${item.date} ${item.transactions} transaksi`).join(', '));
+  for (const item of daily) {
+    const column = document.createElement('div');
+    column.className = 'chart-col';
+    const bar = document.createElement('div');
+    bar.className = 'chart-bar';
+    bar.style.height = item.transactions === 0
+      ? '0px'
+      : `${Math.max(8, Math.round((item.transactions / peak) * 140))}px`;
+    bar.title = `${item.date}: ${item.transactions} transaksi`;
+    const label = document.createElement('span');
+    label.textContent = dayLabel(item.date);
+    column.append(bar, label);
+    chart.append(column);
+  }
+  chartCard.append(chartTitle, chart);
+  content.append(cards, chartCard);
+}
+
 async function renderHistory(content) {
   content.replaceChildren();
   const title = document.createElement('h1');
   title.textContent = 'Riwayat pembelian';
   const note = messageLine();
-  const data = await api('/api/admin/payments').catch((error) => {
+  const filter = currentHistoryFilter();
+  const form = document.createElement('form');
+  form.className = 'filters';
+  const from = document.createElement('input');
+  from.type = 'date';
+  from.required = true;
+  from.value = filter.from;
+  const to = document.createElement('input');
+  to.type = 'date';
+  to.required = true;
+  to.value = filter.to;
+  const payment = document.createElement('select');
+  payment.append(
+    selectOption('', 'Semua', filter.payment),
+    selectOption('pending', 'Menunggu', filter.payment),
+    selectOption('settlement', 'Berhasil', filter.payment),
+    selectOption('expire', 'Kedaluwarsa', filter.payment),
+    selectOption('deny', 'Ditolak', filter.payment),
+    selectOption('cancel', 'Dibatalkan', filter.payment),
+    selectOption('failure', 'Gagal', filter.payment),
+  );
+  const signal = document.createElement('select');
+  signal.append(
+    selectOption('', 'Semua', filter.signal),
+    selectOption('none', 'Belum dikirim', filter.signal),
+    selectOption('queued', 'Diantrekan', filter.signal),
+    selectOption('accepted', 'Diambil mesin', filter.signal),
+    selectOption('done', 'Selesai', filter.signal),
+  );
+  const submit = document.createElement('button');
+  submit.type = 'submit';
+  submit.className = 'primary';
+  submit.textContent = 'Tampilkan';
+  form.append(
+    field('Dari tanggal', from),
+    field('Sampai tanggal', to),
+    field('Status pembayaran', payment),
+    field('Status sinyal', signal),
+    submit,
+  );
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (from.value > to.value) {
+      note.textContent = 'Tanggal mulai harus sebelum tanggal akhir.';
+      return;
+    }
+    historyFilter = {
+      from: from.value,
+      to: to.value,
+      payment: payment.value,
+      signal: signal.value,
+    };
+    renderHistory(content);
+  });
+  content.append(title, form, note);
+  const params = new URLSearchParams();
+  if (filter.from) params.set('from', filter.from);
+  if (filter.to) params.set('to', filter.to);
+  if (filter.payment) params.set('payment', filter.payment);
+  if (filter.signal) params.set('signal', filter.signal);
+  const data = await api(`/api/admin/payments?${params}`).catch((error) => {
     note.textContent = error.message;
     return { payments: [] };
   });
@@ -233,8 +391,8 @@ async function renderHistory(content) {
   if (payments.length === 0 && !note.textContent) {
     const empty = document.createElement('p');
     empty.className = 'lead';
-    empty.textContent = 'Belum ada pembelian.';
-    content.append(title, note, empty);
+    empty.textContent = 'Tidak ada pembelian pada filter ini.';
+    content.append(empty);
     return;
   }
 
@@ -327,7 +485,7 @@ async function renderHistory(content) {
   }
   table.append(thead, body);
   wrap.append(table);
-  content.append(title, note, wrap, detail);
+  content.append(note, wrap, detail);
 }
 
 async function renderRelay(content) {

@@ -17,6 +17,7 @@ import {
   insertPayment,
   insertToken,
   listAdmins,
+  dashboardStats,
   listPayments,
   listTokens,
   getRelayTiming,
@@ -48,6 +49,23 @@ function routeId(value) {
   const number = Number(value);
   if (!Number.isSafeInteger(number) || number < 1) return null;
   return number;
+}
+
+function queryDate(value) {
+  if (value === undefined) return '';
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const [year, month, day] = value.split('-').map(Number);
+  const check = new Date(Date.UTC(year, month - 1, day));
+  if (check.getUTCFullYear() !== year || check.getUTCMonth() !== month - 1 || check.getUTCDate() !== day) {
+    return null;
+  }
+  return value;
+}
+
+function queryChoice(value, allowed) {
+  if (value === undefined || value === '') return '';
+  if (typeof value !== 'string' || !allowed.includes(value)) return null;
+  return value;
 }
 
 function publicAdmin(row) {
@@ -312,9 +330,33 @@ export function createApp({ db, config, midtrans, manualRelay }) {
     }
   }));
 
+  app.get('/api/admin/dashboard', requireAdmin, (req, res) => {
+    res.json(dashboardStats(db));
+  });
+
   app.get('/api/admin/payments', requireAdmin, (req, res) => {
+    const from = queryDate(req.query.from);
+    const to = queryDate(req.query.to);
+    if (from === null || to === null) {
+      res.status(400).json({ error: 'Tanggal tidak valid' });
+      return;
+    }
+    if (from && to && from > to) {
+      res.status(400).json({ error: 'Tanggal mulai harus sebelum tanggal akhir' });
+      return;
+    }
+    const payment = queryChoice(req.query.payment, ['pending', 'settlement', 'expire', 'deny', 'cancel', 'failure']);
+    const signal = queryChoice(req.query.signal, ['none', 'queued', 'accepted', 'done']);
+    if (payment === null) {
+      res.status(400).json({ error: 'Status pembayaran tidak valid' });
+      return;
+    }
+    if (signal === null) {
+      res.status(400).json({ error: 'Status sinyal tidak valid' });
+      return;
+    }
     res.json({
-      payments: listPayments(db).map((row) => {
+      payments: listPayments(db, { from, to, payment, signal }).map((row) => {
         const waiting = row.midtrans_status === 'pending' && row.signal_status === 'none';
         const payment = {
           id: row.id,
@@ -636,7 +678,14 @@ export function createApp({ db, config, midtrans, manualRelay }) {
   app.use('/api', (req, res) => {
     res.status(404).json({ error: 'Tidak ditemukan' });
   });
-  app.use(express.static(publicDir, { maxAge: 0 }));
+  app.use(express.static(publicDir, {
+    maxAge: 0,
+    setHeaders(res, filePath) {
+      if (filePath.endsWith('.webmanifest')) {
+        res.setHeader('Content-Type', 'application/manifest+json; charset=utf-8');
+      }
+    },
+  }));
 
   app.use((error, req, res, next) => {
     if (error?.type === 'entity.parse.failed') {

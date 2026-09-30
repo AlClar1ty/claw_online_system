@@ -192,8 +192,16 @@ export function findPaymentByOrderId(db, orderId) {
   return db.prepare('SELECT * FROM payments WHERE order_id = ?').get(orderId);
 }
 
-export function listPayments(db) {
-  return db.prepare(`
+const JAKARTA_OFFSET_MS = 7 * 60 * 60 * 1000;
+
+export function jakartaDate(value) {
+  const time = value instanceof Date ? value.getTime() : new Date(value).getTime();
+  if (Number.isNaN(time)) return '';
+  return new Date(time + JAKARTA_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+export function listPayments(db, filters = {}) {
+  const rows = db.prepare(`
     SELECT id, order_id, token_id, price, play_count, midtrans_transaction_id,
            midtrans_status, fraud_status, signal_status, expires_at, qr_image,
            signal_queued_at, signal_accepted_at, signal_done_at, created_at, updated_at
@@ -201,6 +209,57 @@ export function listPayments(db) {
     WHERE NOT (skipped = 1 AND midtrans_status = 'pending' AND signal_status = 'none')
     ORDER BY id DESC
   `).all();
+  return rows.filter((row) => {
+    if (filters.from || filters.to) {
+      const date = jakartaDate(row.created_at);
+      if (filters.from && date < filters.from) return false;
+      if (filters.to && date > filters.to) return false;
+    }
+    if (filters.payment && row.midtrans_status !== filters.payment) return false;
+    if (filters.signal && row.signal_status !== filters.signal) return false;
+    return true;
+  });
+}
+
+export function dashboardStats(db, now = new Date()) {
+  const today = jakartaDate(now);
+  const month = today.slice(0, 7);
+  const todayNumber = Number(today.slice(8, 10));
+  const daily = [];
+  for (let day = 1; day <= todayNumber; day += 1) {
+    daily.push({ date: `${month}-${String(day).padStart(2, '0')}`, transactions: 0 });
+  }
+  const counts = new Map(daily.map((item) => [item.date, item]));
+  const rows = db.prepare(`
+    SELECT price, play_count, created_at
+    FROM payments
+    WHERE midtrans_status = 'settlement'
+  `).all();
+  let monthTotal = 0;
+  let todayTotal = 0;
+  let todayTransactions = 0;
+  let playSum = 0;
+  for (const row of rows) {
+    const date = jakartaDate(row.created_at);
+    playSum += row.play_count;
+    if (date.slice(0, 7) === month) {
+      monthTotal += row.price;
+      const bucket = counts.get(date);
+      if (bucket) bucket.transactions += 1;
+    }
+    if (date === today) {
+      todayTotal += row.price;
+      todayTransactions += 1;
+    }
+  }
+  const average = rows.length === 0 ? 0 : playSum / rows.length;
+  return {
+    month_total: monthTotal,
+    today_total: todayTotal,
+    today_transactions: todayTransactions,
+    average_plays: Math.round(average * 10) / 10,
+    daily,
+  };
 }
 
 export function getRelayTiming(db, defaults) {

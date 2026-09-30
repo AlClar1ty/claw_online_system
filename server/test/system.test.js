@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
 import bcrypt from 'bcryptjs';
 import { createApp } from '../src/app.js';
-import { insertAdmin, openDatabase } from '../src/db.js';
+import { dashboardStats, insertAdmin, insertPayment, openDatabase } from '../src/db.js';
 import { signatureFor } from '../src/midtrans.js';
 
 const serverKey = 'test-server-key-sandbox-0123456789';
@@ -363,4 +363,57 @@ test('admin, token, pembayaran, dan sinyal hanya sekali', async () => {
   assert.equal(recorded.signal_status, 'done');
   assert.equal(Object.hasOwn(recorded, 'qr_string'), false);
   assert.equal(Object.hasOwn(recorded, 'qr_image'), false);
+
+  const dashDenied = await request('/api/admin/dashboard');
+  assert.equal(dashDenied.status, 401);
+  const dash = await request('/api/admin/dashboard', { cookie });
+  assert.equal(dash.status, 200);
+  assert.equal(dash.data.month_total, 18000);
+  assert.equal(dash.data.today_total, 18000);
+  assert.equal(dash.data.today_transactions, 2);
+  assert.equal(dash.data.average_plays, 2);
+  assert.equal(dash.data.daily.at(-1).transactions, 2);
+
+  const today = new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const filtered = await request(
+    `/api/admin/payments?from=${today}&to=${today}&payment=settlement&signal=done`,
+    { cookie },
+  );
+  assert.equal(filtered.status, 200);
+  assert.equal(filtered.data.payments.length, 2);
+  const emptyDay = await request('/api/admin/payments?from=2000-01-01&to=2000-01-01', { cookie });
+  assert.equal(emptyDay.data.payments.length, 0);
+  const badDate = await request('/api/admin/payments?from=2026-13-40', { cookie });
+  assert.equal(badDate.status, 400);
+  const reversed = await request('/api/admin/payments?from=2026-09-30&to=2026-09-01', { cookie });
+  assert.equal(reversed.status, 400);
+});
+
+test('dashboard mengikuti tanggal Jakarta', () => {
+  const local = openDatabase(':memory:');
+  const evening = insertPayment(local, {
+    orderId: 'claw_dash_jakarta',
+    tokenId: null,
+    price: 18000,
+    playCount: 3,
+    transactionId: 'tx-jakarta',
+    midtransStatus: 'settlement',
+    fraudStatus: 'accept',
+    qrString: '',
+    qrImage: '',
+    qrLink: '',
+    expiresAt: '2026-10-01T18:00:00.000Z',
+  });
+  local.prepare('UPDATE payments SET created_at = ? WHERE id = ?').run('2026-09-30T17:30:00.000Z', evening.id);
+  const nextMorning = dashboardStats(local, new Date('2026-10-01T01:00:00.000Z'));
+  assert.equal(nextMorning.today_total, 18000);
+  assert.equal(nextMorning.today_transactions, 1);
+  assert.equal(nextMorning.month_total, 18000);
+  assert.equal(nextMorning.average_plays, 3);
+  assert.equal(nextMorning.daily[0].date, '2026-10-01');
+  assert.equal(nextMorning.daily[0].transactions, 1);
+  const stillSeptember = dashboardStats(local, new Date('2026-09-30T16:00:00.000Z'));
+  assert.equal(stillSeptember.today_total, 0);
+  assert.equal(stillSeptember.month_total, 0);
+  local.close();
 });
